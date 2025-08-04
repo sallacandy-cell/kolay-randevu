@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Randevu Rezervasyonu</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; background: #f9f9f9; }
+    h1 { color: #333; }
+    #dayTabs { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+    #timeTabs { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; }
+    .tab { padding: 10px 20px; border: 1px solid #ccc; border-radius: 5px; cursor: pointer; }
+    .tab.active { background: #007bff; color: white; border-color: #007bff; }
+    #inputContainer { display: flex; justify-content: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    #nameInput, #daireInput { padding: 10px; font-size: 16px; width: 80%; max-width: 300px; border: 1px solid #ccc; border-radius: 5px; }
+    #slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 20px auto; max-width: 800px; }
+    .slot { padding: 15px; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.2s; }
+    .slot:hover { transform: translateY(-2px); }
+    .available { background: #4CAF50; color: white; }
+    .reserved { background: #ccc; color: #666; cursor: not-allowed; pointer-events: none; }
+  </style>
+</head>
+<body>
+
+<h1>Randevu Rezervasyonu</h1>
+<div id="dayTabs"></div>
+<div id="timeTabs"></div>
+<div id="inputContainer">
+  <input type="text" id="nameInput" placeholder="Adınız Soyadınız" />
+  <input type="text" id="daireInput" placeholder="Blok-Daire No (örn: A1-3)" />
+</div>
+<div id="slots"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+  import { getDatabase, ref, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+  // Firebase projenizin ayarlarını buraya yapıştırın
+  const firebaseConfig = {
+    apiKey: "AIzaSyAuFygZce80m6XuEki7l2ufuUeeSKyISK0",
+    authDomain: "ninovaparkyakacik.firebaseapp.com",
+    databaseURL: "https://ninovaparkyakacik-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "ninovaparkyakacik",
+    storageBucket: "ninovaparkyakacik.firebasestorage.app",
+    messagingSenderId: "647113002864",
+    appId: "1:647113002864:web:d0c634f4b2490bb81b49b5",
+    measurementId: "G-SETWZZPTMR"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  
+  const daysOfWeek = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"];
+  const timeGroups = ["Sabah", "Öğle", "Akşam"];
+  let selectedDay = daysOfWeek[0];
+  let selectedTimeGroup = timeGroups[0];
+
+  const dayTabsContainer = document.getElementById("dayTabs");
+  const timeTabsContainer = document.getElementById("timeTabs");
+  const slotsContainer = document.getElementById("slots");
+  const nameInput = document.getElementById("nameInput");
+  const daireInput = document.getElementById("daireInput");
+
+  // Yeni fonksiyon: Veritabanı anahtarını okunabilir zamana çevirir
+  function convertToReadableTime(slotId) {
+    if (!slotId) return "";
+    const startHour = slotId.substring(4, 6);
+    const endHour = slotId.substring(6, 8);
+    return `${startHour}:00-${endHour}:00`;
+  }
+
+  // Gün sekmelerini oluşturma
+  daysOfWeek.forEach(day => {
+    const tab = document.createElement("div");
+    tab.className = "tab";
+    tab.textContent = day;
+    tab.onclick = () => {
+      selectedDay = day;
+      loadTimeGroupTabs();
+      updateTabsUI(dayTabsContainer, day);
+    };
+    dayTabsContainer.appendChild(tab);
+  });
+
+  // Zaman dilimi sekmelerini oluşturma ve yükleme
+  function loadTimeGroupTabs() {
+    timeTabsContainer.innerHTML = "";
+    timeGroups.forEach(group => {
+      const tab = document.createElement("div");
+      tab.className = "tab";
+      tab.textContent = group;
+      tab.onclick = () => {
+        selectedTimeGroup = group;
+        loadSlots(selectedDay, selectedTimeGroup);
+        updateTabsUI(timeTabsContainer, group);
+      };
+      timeTabsContainer.appendChild(tab);
+    });
+    // Varsayılan olarak ilk zaman grubunu yükle
+    updateTabsUI(timeTabsContainer, selectedTimeGroup);
+    loadSlots(selectedDay, selectedTimeGroup);
+  }
+
+  // UI'yı güncelleyerek seçili tab'ı vurgulama
+  function updateTabsUI(container, activeTabName) {
+    container.querySelectorAll(".tab").forEach(tab => {
+      tab.classList.remove("active");
+      if (tab.textContent === activeTabName) {
+        tab.classList.add("active");
+      }
+    });
+  }
+
+  // Slotları çekme ve gösterme fonksiyonu
+  function loadSlots(day, timeGroup) {
+    const slotsRef = ref(db, `rezervasyonlar/${day}/${timeGroup}`);
+    onValue(slotsRef, (snapshot) => {
+      slotsContainer.innerHTML = ""; 
+      if (snapshot.exists()) {
+        const slotsData = snapshot.val();
+        for (const slotId in slotsData) {
+          const slot = slotsData[slotId];
+          const div = document.createElement("div");
+          const readableTime = convertToReadableTime(slotId);
+          div.className = "slot " + (slot.status === "available" ? "available" : "reserved");
+          if (slot.status === "reserved") {
+            div.innerHTML = `${readableTime}<br>Dolu<br>${slot.user}<br>${slot.daire}`;
+          } else {
+            div.textContent = `${readableTime}: Boş`;
+          }
+          if (slot.status === "available") {
+            div.onclick = () => confirmAndReserve(slotId);
+          }
+          slotsContainer.appendChild(div);
+        }
+      } else {
+        slotsContainer.innerHTML = "<p>Bu zaman dilimine ait randevu saatleri bulunamadı.</p>";
+      }
+    });
+  }
+
+  // Onay alarak rezervasyon yapma
+  function confirmAndReserve(slotId) {
+    const name = nameInput.value.trim();
+    const daire = daireInput.value.trim();
+    
+    if (!name || !daire) {
+      alert("Lütfen adınız-soyadınız ve blok-daire numaranızı girin!");
+      return;
+    }
+    
+    const readableTime = convertToReadableTime(slotId);
+    const confirmation = confirm(`Adınız: ${name}\nBlok-Daire: ${daire}\n${selectedDay} günü, ${readableTime} saatine randevu almak istediğinizden emin misiniz?`);
+    
+    if (confirmation) {
+      reserveSlot(selectedDay, selectedTimeGroup, slotId, name, daire);
+    }
+  }
+
+  // Veritabanına rezervasyon yazma
+  function reserveSlot(day, timeGroup, slotId, name, daire) {
+    runTransaction(ref(db, `rezervasyonlar/${day}/${timeGroup}/${slotId}`), (slot) => {
+      if (slot && slot.status === "available") {
+        slot.status = "reserved";
+        slot.user = name;
+        slot.daire = daire;
+      }
+      return slot;
+    });
+  }
+
+  // Sayfa yüklendiğinde varsayılan olarak ilk günü ve zaman dilimini yükle
+  updateTabsUI(dayTabsContainer, selectedDay);
+  loadTimeGroupTabs();
+</script>
+
+</body>
+</html>
