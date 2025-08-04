@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Randevu Rezervasyonu</title>
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      text-align: center; 
+      padding: 20px; 
+      background: #f9f9f9; 
+    }
+    h1 { 
+      color: #333; 
+    }
+    #nameInput, #daireInput {
+      padding: 10px; 
+      font-size: 16px; 
+      width: 80%; 
+      max-width: 300px; 
+      margin-bottom: 15px; 
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+    #slots { 
+      display: grid; 
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); 
+      gap: 10px; 
+      margin: 20px auto; 
+      max-width: 800px;
+    }
+    .slot { 
+      padding: 15px; 
+      border-radius: 8px; 
+      cursor: pointer; 
+      font-size: 14px; 
+      font-weight: bold; 
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      transition: transform 0.2s;
+    }
+    .slot:hover {
+        transform: translateY(-2px);
+    }
+    .available { 
+      background: #4CAF50; 
+      color: white; 
+    }
+    .reserved { 
+      background: #ccc; 
+      color: #666; 
+      cursor: not-allowed; 
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Yakacık Ninova park Havuz Randevu Rezervasyonu</h1>
+<input type="text" id="nameInput" placeholder="Adınız Soyadınız" />
+<input type="text" id="daireInput" placeholder="Blok-Daire No (örn: A1-3)" />
+<div id="slots"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
+  import { getDatabase, ref, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAuFygZce80m6XuEki7l2ufuUeeSKyISK0",
+    authDomain: "ninovaparkyakacik.firebaseapp.com",
+    databaseURL: "https://ninovaparkyakacik-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "ninovaparkyakacik",
+    storageBucket: "ninovaparkyakacik.firebasestorage.app",
+    messagingSenderId: "647113002864",
+    appId: "1:647113002864:web:d0c634f4b2490bb81b49b5",
+    measurementId: "G-SETWZZPTMR"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const slotsRef = ref(db, "slots");
+
+  const slotsContainer = document.getElementById("slots");
+  const nameInput = document.getElementById("nameInput");
+  const daireInput = document.getElementById("daireInput");
+
+  function loadSlots() {
+    onValue(slotsRef, (snapshot) => {
+      slotsContainer.innerHTML = ""; 
+
+      if (snapshot.exists()) {
+        const slotsData = snapshot.val();
+        
+        for (const slotId in slotsData) {
+          const slot = slotsData[slotId];
+          const div = document.createElement("div");
+          
+          div.className = "slot " + (slot.status === "available" ? "available" : "reserved");
+          
+          if (slot.status === "reserved") {
+            div.innerHTML = `${slot.time}: Dolu<br>${slot.user} - ${slot.daire}`;
+          } else {
+            div.textContent = `${slot.time}: Boş`;
+          }
+          
+          if (slot.status === "available") {
+            div.onclick = () => confirmAndReserve(slotId);
+          }
+          
+          slotsContainer.appendChild(div);
+        }
+      } else {
+        console.log("Veritabanında 'slots' düğümü altında veri bulunamadı.");
+        slotsContainer.innerHTML = "<p>Randevu saatleri henüz yüklenmedi veya veritabanında 'slots' düğümü boş.</p>";
+      }
+    });
+  }
+
+  function confirmAndReserve(slotId) {
+    const name = nameInput.value.trim();
+    const daire = daireInput.value.trim();
+    
+    if (!name || !daire) {
+      alert("Lütfen adınız-soyadınız ve blok-daire numaranızı girin!");
+      return;
+    }
+    
+    const confirmation = confirm(`Adınız: ${name}\nBlok-Daire: ${daire}\nRandevu almak istediğinizden emin misiniz?`);
+    
+    if (confirmation) {
+      reserveSlot(slotId, name, daire);
+    }
+  }
+
+  function reserveSlot(slotId, name, daire) {
+    runTransaction(ref(db, "slots/" + slotId), (slot) => {
+      if (slot && slot.status === "available") {
+        slot.status = "reserved";
+        slot.user = name;
+        slot.daire = daire;
+      }
+      return slot;
+    });
+  }
+
+  loadSlots();
+</script>
+
+</body>
+</html>
